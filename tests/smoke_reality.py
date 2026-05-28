@@ -40,6 +40,7 @@ def main():
         "REALITY replaces normal TLS certificate handling",
         "generate_reality_keys_with_python",
         "base64.urlsafe_b64encode",
+        "if not args.reality:",
     ]
     for value in expected:
         assert_contains(value)
