@@ -62,6 +62,7 @@ You can use one of the following protocols for installation and change its setti
 | VLESS WS TLS        | --vless              |
 | VLESS TCP TLS       | --vless --tcp        |
 | VLESS TCP XTLS      | --vless --tcp --xtls |
+| VLESS TCP REALITY Vision | --vless --tcp --reality --vision |
 | TROJAN WS TLS       | --trojan             |
 | TROJAN TCP TLS      | --trojan --tcp       |
 | TROJAN TCP XTLS     | --trojan --xtls      |
@@ -136,6 +137,22 @@ VLESS + TCP + XTLS :
 ```bash
 curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --tcp --xtls
 ```
+
+VLESS TCP REALITY Vision :
+
+```bash
+sudo python3 V2RayGen.py --vless --tcp --reality --vision
+```
+
+Optional:
+
+```bash
+--reality-dest www.microsoft.com:443
+--reality-server-name www.microsoft.com
+--reality-short-id <hex>
+```
+
+REALITY replaces normal TLS certificate handling and does not use this repo's self-signed certificate generation. Vision sets the VLESS user flow to `xtls-rprx-vision`.
 
 ShadowSocks + adding shadowsocks port to server :
 
@@ -322,6 +339,14 @@ none : Nothing will be printed.
 > XTLS only supports (TCP, mKCP) so by default when you use --xtls argument tcp mode is being used for vless
 >
 > also xtls doesn't support vmess protocol
+
+`reality` Using REALITY with VLESS TCP.
+
+> REALITY is not normal TLS and does not generate or mount self-signed certificates. Use it with `--vless --tcp --reality --vision`.
+
+`vision` Using VLESS Vision flow.
+
+> Vision is valid with VLESS TCP REALITY and sets flow to `xtls-rprx-vision`.
 
 `port` for changing configuration port.
 

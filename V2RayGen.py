@@ -20,7 +20,7 @@ import csv
 import re
 import platform
 import ipaddress
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 from http.client import RemoteDisconnected
@@ -139,6 +139,12 @@ inboundsparser.add_argument(
 inboundsparser.add_argument(
     "--xtls", "-xt", action="store_true", help="Using XTLS in specified protocol"
 )
+inboundsparser.add_argument(
+    "--reality", action="store_true", help="Using REALITY in VLESS TCP stream"
+)
+inboundsparser.add_argument(
+    "--vision", action="store_true", help="Using VLESS Vision flow with REALITY"
+)
 
 
 inboundsparser.add_argument(
@@ -212,6 +218,29 @@ streamsettingsparser.add_argument(
     type=argparse.FileType("r"),
     metavar="",
     help="Optional JSON HTTPRequest Header.",
+)
+streamsettingsparser.add_argument(
+    "--reality-dest",
+    action="store",
+    type=str,
+    metavar="",
+    help="REALITY destination host:port. default: [www.microsoft.com:443]",
+    default="www.microsoft.com:443",
+)
+streamsettingsparser.add_argument(
+    "--reality-server-name",
+    action="store",
+    type=str,
+    metavar="",
+    help="REALITY server name/SNI. default: [www.microsoft.com]",
+    default="www.microsoft.com",
+)
+streamsettingsparser.add_argument(
+    "--reality-short-id",
+    action="store",
+    type=str,
+    metavar="",
+    help="REALITY short ID as hex. default: [random]",
 )
 
 linkparser = parser.add_argument_group(
@@ -436,8 +465,11 @@ def docker_compose_version() -> str:
                 "User-Agent": "Mozilla/5.0",
             },
         )
-        with urlopen(compose) as response:
-            return json.loads(response.read().decode())[version]
+        try:
+            with urlopen(compose) as response:
+                return json.loads(response.read().decode())[version]
+        except (HTTPError, URLError, RemoteDisconnected):
+            return "v2.16.0"
 
 
 # Return IP
@@ -667,6 +699,67 @@ def openssl_rand(type, byte) -> str:
     )
 
 
+def generate_reality_short_id() -> str:
+    return os.urandom(8).hex()
+
+
+def reality_short_id_check(short_id) -> None:
+    if not re.fullmatch(r"[0-9a-fA-F]{2,16}", short_id or ""):
+        sys.exit(
+            error
+            + "ERROR : "
+            + reset
+            + "--reality-short-id must be 2 to 16 hex characters"
+        )
+    if len(short_id) % 2 != 0:
+        sys.exit(
+            error
+            + "ERROR : "
+            + reset
+            + "--reality-short-id length must be a multiple of 2"
+        )
+
+
+def parse_reality_x25519_output(output) -> tuple:
+    private_key = None
+    public_key = None
+    for line in output.splitlines():
+        if re.search(r"private\s*key", line, re.IGNORECASE):
+            private_key = line.split(":", 1)[-1].strip()
+        if re.search(r"public\s*key", line, re.IGNORECASE):
+            public_key = line.split(":", 1)[-1].strip()
+
+    if private_key and public_key:
+        return private_key, public_key
+
+    raise ValueError("Unable to parse xray x25519 output")
+
+
+def run_reality_x25519_command(command) -> tuple:
+    output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode("utf-8")
+    return parse_reality_x25519_output(output)
+
+
+def generate_reality_keys() -> tuple:
+    try:
+        return run_reality_x25519_command(["xray", "x25519"])
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        pass
+
+    try:
+        return run_reality_x25519_command(
+            ["docker", "run", "--rm", "teddysun/xray", "xray", "x25519"]
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError) as e:
+        sys.exit(
+            error
+            + "ERROR : "
+            + reset
+            + "Unable to generate REALITY X25519 keys. Install xray or docker and retry. "
+            + str(e)
+        )
+
+
 def launch_agent():
     clearcmd()
     subprocess_command = "curl -s {url} --output {path} && python3 {path}".format(
@@ -696,6 +789,8 @@ shadowsocks_scheme = "ss://"
 
 # TROJAN PASSWORD
 trojanpassword = None
+reality_private_key = None
+reality_public_key = None
 
 # Docker Compose Version
 DOCKERCOMPOSEVERSION = docker_compose_version()
@@ -709,6 +804,8 @@ supported_typo = [
     "vlesswstls",
     "vlesstcptls",
     "vlesstcpxtls",
+    "vlesstcpreality",
+    "vlesstcprealityvision",
     "shadowsockstcp",
     "shadowsockstcptls",
     "trojanwstls",
@@ -723,15 +820,21 @@ def protocol_map():
     If unsupported protocols are entered, raise an exception with a list of available protocols,
     prioritizing arguments with more parameters.
     """
+    # vlesstcprealityvision
+    if all((args.vless, args.tcp, args.reality, args.vision)):
+        protocol_type = supported_typo[8]
+    # vlesstcpreality
+    elif all((args.vless, args.tcp, args.reality)):
+        protocol_type = supported_typo[7]
     # vmesstcptls
-    if all((args.vmess, args.tcp, args.tls)):
+    elif all((args.vmess, args.tcp, args.tls)):
         protocol_type = supported_typo[3]
     # trojantcptls
     elif all((args.trojan, args.tcp, args.tls)):
-        protocol_type = supported_typo[10]
+        protocol_type = supported_typo[12]
     # trojantcpxtls
     elif all((args.trojan, args.tcp, args.xtls)):
-        protocol_type = supported_typo[11]
+        protocol_type = supported_typo[13]
     # vlesstcpxtls
     elif all((args.vless, args.tcp, args.xtls)):
         protocol_type = supported_typo[6]
@@ -740,10 +843,10 @@ def protocol_map():
         protocol_type = supported_typo[2]
     # trojantcptls
     elif all((args.trojan, args.tcp)):
-        protocol_type = supported_typo[10]
+        protocol_type = supported_typo[12]
     # trojantcpxtls
     elif all((args.trojan, args.xtls)):
-        protocol_type = supported_typo[11]
+        protocol_type = supported_typo[13]
     # vlesstcpxtls
     elif all((args.vless, args.xtls)):
         protocol_type = supported_typo[6]
@@ -752,13 +855,13 @@ def protocol_map():
         protocol_type = supported_typo[5]
     # shadowsockstcptls
     elif all((args.shadowsocks, args.tls)):
-        protocol_type = supported_typo[8]
+        protocol_type = supported_typo[10]
     # vmesswstls
     elif all((args.vmess, args.tls)):
         protocol_type = supported_typo[1]
     # shadowsockstcp
     elif args.shadowsocks:
-        protocol_type = supported_typo[7]
+        protocol_type = supported_typo[9]
     # vmessws
     elif args.vmess:
         protocol_type = supported_typo[0]
@@ -767,7 +870,7 @@ def protocol_map():
         protocol_type = supported_typo[4]
     # trojanwstls
     elif args.trojan:
-        protocol_type = supported_typo[9]
+        protocol_type = supported_typo[11]
     else:
         raise Exception("Unsupported Protocol.\n{}".format(protocols_list()))
     return protocol_type
@@ -784,6 +887,7 @@ def protocols_list() -> None:
         "VLESS WS TLS": "--vless",
         "VLESS TCP TLS": "--vless --tcp",
         "VLESS TCP XTLS": "--vless --tcp --xtls",
+        "VLESS TCP REALITY Vision": "--vless --tcp --reality --vision",
         "TROJAN WS TLS": "--trojan",
         "TROJAN TCP TLS": "--trojan --tcp",
         "TROJAN TCP XTLS": "--trojan --tcp",
@@ -825,6 +929,12 @@ def xray_make():
     elif proto_type == "vlesstcpxtls":
         proto_name = "VLESS + TCP + XTLS"
 
+    elif proto_type == "vlesstcpreality":
+        proto_name = "VLESS + TCP + REALITY"
+
+    elif proto_type == "vlesstcprealityvision":
+        proto_name = "VLESS + TCP + REALITY + Vision"
+
     elif proto_type == "trojanwstls":
         proto_name = "TROJAN + WS + TLS"
 
@@ -854,7 +964,7 @@ def xray_make():
             blue, green, proto_name, reset, blue, reset
         )
     )
-    if args.vless or args.trojan:
+    if (args.vless and not args.reality) or args.trojan:
         print(
             "{}! By default TLS is being used for this Protocol{}".format(yellow, reset)
         )
@@ -871,7 +981,9 @@ def xray_config(outband, protocol) -> str:
             "{}! XTLS only supports (TCP,mKCP). Using TCP mode{}".format(yellow, reset)
         )
 
-    if args.tls:
+    if args.reality:
+        tls_config = realitysettings()
+    elif args.tls:
         tls_config = tlssettings()
     elif args.vless:
         tls_config = tlssettings()
@@ -880,7 +992,7 @@ def xray_config(outband, protocol) -> str:
     else:
         tls_config = notls()
 
-    if args.tcp or args.shadowsocks or args.xtls:
+    if args.tcp or args.shadowsocks or args.xtls or args.reality:
         networkstream = tcp()
         NETSTREAM = "TCP"
     else:
@@ -894,7 +1006,18 @@ def xray_config(outband, protocol) -> str:
         routing_config = ""
         sniffing_config = ""
 
-    if args.tcp or args.shadowsocks or args.xtls:
+    if args.reality:
+        streamsettings = """
+        "streamSettings": {
+        %s,
+        %s
+        }
+        """ % (
+            networkstream,
+            tls_config,
+        )
+
+    elif args.tcp or args.shadowsocks or args.xtls:
         # TCP stream settings
         streamsettings = """
         "streamSettings": {
@@ -1045,6 +1168,8 @@ def vless_server_side():
     vless server side inbound configuration
     https://xtls.github.io/config/inbounds/vless.html
     """
+    flow = """,
+          "flow": "xtls-rprx-vision" """ if args.vision else ""
     vless = """
       "protocol": "vless",
       "settings": {
@@ -1052,12 +1177,13 @@ def vless_server_side():
         {
           "id": "%s",
           "level": 0,
-          "email": "client@example.com"
+          "email": "client@example.com"%s
         }
       ],
       "decryption": "none"
   }""" % (
-        UUID
+        UUID,
+        flow,
     )
     return vless
 
@@ -1250,6 +1376,32 @@ def tlssettings() -> str:
         hostkey,
     )
     return tls
+
+
+def realitysettings() -> str:
+    """
+    REALITY security settings for VLESS TCP.
+    """
+    reality = """
+    "security": "reality",
+    "realitySettings": {
+          "show": false,
+          "dest": "%s",
+          "xver": 0,
+          "serverNames": [
+            "%s"
+          ],
+          "privateKey": "%s",
+          "shortIds": [
+            "%s"
+          ]
+        }""" % (
+        args.reality_dest,
+        args.reality_server_name,
+        reality_private_key,
+        args.reality_short_id,
+    )
+    return reality
 
 
 def notls() -> str:
@@ -1549,6 +1701,8 @@ def client_side_configuration(protocol):
         SECURITY,
     )
 
+    vless_flow = """,
+                "flow": "xtls-rprx-vision" """ if args.vision else ""
     vless_clinet = """
         "protocol": "vless",
         "settings": {
@@ -1559,7 +1713,7 @@ def client_side_configuration(protocol):
             "users": [
             {
                 "encryption": "none",
-                "id": "%s"
+                "id": "%s"%s
             }
             ]
         }
@@ -1568,6 +1722,7 @@ def client_side_configuration(protocol):
         ServerIP,
         PORT,
         UUID,
+        vless_flow,
     )
 
     trojan_client = """
@@ -1642,7 +1797,22 @@ def client_side_configuration(protocol):
         HTTPPORT,
     )
 
-    if args.xtls:
+    if args.reality:
+        tls_client = """
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "%s",
+          "fingerprint": "chrome",
+          "publicKey": "%s",
+          "shortId": "%s",
+          "spiderX": "/"
+        }
+        """ % (
+            args.reality_server_name,
+            reality_public_key,
+            args.reality_short_id,
+        )
+    elif args.xtls:
         tls_client_type = "xtlsSettings"
         security = "xtls"
     else:
@@ -1663,7 +1833,7 @@ def client_side_configuration(protocol):
         tls_client_type,
     )
 
-    if args.tcp or args.shadowsocks or args.xtls:
+    if args.tcp or args.shadowsocks or args.xtls or args.reality:
         network = "tcp"
     else:
         network = "websocket"
@@ -1684,9 +1854,9 @@ def client_side_configuration(protocol):
       "tag": "proxy"
     """ % (
         network,
-        tls_client if proto_type.__contains__("tls") else notls(),
+        tls_client if proto_type.__contains__("tls") or args.reality else notls(),
         ',"tcpSettings":' + headersettings("out")
-        if proto_type.__contains__("tcp")
+        if proto_type.__contains__("tcp") and not args.reality
         else "",
         "," + wsSettings if not args.tcp and not args.shadowsocks else "",
     )
@@ -1788,17 +1958,20 @@ def xray_create(protocol):
     xray_make()
     sys.exit(1) if args.config else ""
 
-    if args.tls or args.vless or args.trojan:
+    if args.tls or (args.vless and not args.reality) or args.trojan:
         create_key()
         time.sleep(0.5)
 
-    if args.tls or args.vless or args.trojan:
+    if args.tls or (args.vless and not args.reality) or args.trojan:
         print(
             yellow
             + "! Using self-signed key\
         \n! Make sure to add Allow Insecure to your client."
             + reset
         )
+
+    if args.reality:
+        print(yellow + "! REALITY replaces normal TLS certificate handling." + reset)
 
     if args.tcp:
         print(
@@ -2277,7 +2450,14 @@ def link_serverside_configuration():
             AlterId, ID, net, path, configport, linkname, securitymethod, header
         )
     elif protocol == "vless":
-        return vless_link_generator(ID, configport, net, path, securitymethod, linkname)
+        return vless_link_generator(
+            ID,
+            configport,
+            net,
+            path,
+            securitymethod,
+            linkname,
+        )
 
 
 # ------------------------------ VMess Link Gen ------------------------------- #
@@ -2334,9 +2514,25 @@ def vless_link_generator(id, port, net, path, security, name) -> str:
         print(yellow + "! Use below link for your xray or v2ray client" + reset)
 
     prelink = "vless://"
-    raw_link = "{}@{}:{}?path={}&security={}&encryption=none&type={}#{}".format(
-        id, ServerIP, port, path, security, net, name
-    )
+    if args.reality:
+        flow = "&flow=xtls-rprx-vision" if args.vision else ""
+        query = (
+            "type=tcp&security=reality&pbk={}&fp=chrome&sni={}"
+            "&sid={}&spx={}{}"
+        ).format(
+            quote(str(reality_public_key), safe=""),
+            quote(args.reality_server_name, safe=""),
+            quote(args.reality_short_id, safe=""),
+            quote("/", safe=""),
+            flow,
+        )
+        raw_link = "{}@{}:{}?{}#{}".format(
+            id, ServerIP, port, query, quote(name, safe="")
+        )
+    else:
+        raw_link = "{}@{}:{}?path={}&security={}&encryption=none&type={}#{}".format(
+            id, ServerIP, port, path, security, net, name
+        )
 
     vless_link = prelink + raw_link
 
@@ -2517,6 +2713,37 @@ def dns_check():
         sys.exit(2)
 
 
+def reality_check():
+    if args.reality and not args.vless:
+        base_error("--reality is only supported with --vless")
+
+    if args.reality and (args.vmess or args.trojan or args.shadowsocks):
+        base_error("--reality cannot be used with vmess, trojan, or shadowsocks")
+
+    if args.reality and (args.tls or args.xtls):
+        base_error("--reality cannot be combined with --tls or --xtls")
+
+    if args.vision and not args.reality:
+        base_error("--vision requires --reality")
+
+    if args.vision and not args.vless:
+        base_error("--vision is only supported with --vless")
+
+    if args.reality and not args.tcp:
+        print(yellow + "! REALITY requires TCP. Using TCP mode" + reset)
+        args.tcp = True
+
+    if args.reality_short_id == None:
+        args.reality_short_id = generate_reality_short_id()
+    reality_short_id_check(args.reality_short_id)
+
+    if args.reality_dest == None or ":" not in args.reality_dest:
+        base_error("--reality-dest must be in host:port format")
+
+    if args.reality_server_name == None or ":" in args.reality_server_name:
+        base_error("--reality-server-name must be a host name without port")
+
+
 # ------------------------------ Error Messages ------------------------------- #
 
 
@@ -2618,6 +2845,8 @@ if __name__ == "__main__":
     if args.tls and args.xtls:
         sys.exit("{}ERROR : Can't use xtls and tls togheter.{}".format(error, reset))
 
+    reality_check()
+
     # Port Settings :
     if args.port == None and args.vless == True or args.tls == True:
         PORT = 443
@@ -2656,11 +2885,17 @@ if __name__ == "__main__":
         args.sspass = openssl_rand("base64", 32)
 
     # link security method
+    if args.reality:
+        reality_private_key, reality_public_key = generate_reality_keys()
+
     if args.tls:
         TLSTYPE = "tls"
 
     elif args.xtls:
         TLSTYPE = "xtls"
+
+    elif args.reality:
+        TLSTYPE = "reality"
 
     elif args.vless or args.trojan:
         TLSTYPE = "tls"
