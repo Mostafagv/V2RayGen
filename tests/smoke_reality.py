@@ -38,6 +38,8 @@ def main():
         "type=tcp&security=reality&pbk={}&fp=chrome&sni={}",
         "&flow=xtls-rprx-vision",
         "REALITY replaces normal TLS certificate handling",
+        "generate_reality_keys_with_python",
+        "base64.urlsafe_b64encode",
     ]
     for value in expected:
         assert_contains(value)
