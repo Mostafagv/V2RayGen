@@ -740,6 +740,60 @@ def run_reality_x25519_command(command) -> tuple:
     return parse_reality_x25519_output(output)
 
 
+def reality_key_b64(raw_key) -> str:
+    return base64.urlsafe_b64encode(raw_key).decode("ascii").rstrip("=")
+
+
+def reality_x25519(scalar, u_coordinate) -> bytes:
+    p = 2**255 - 19
+    scalar = bytearray(scalar)
+    scalar[0] &= 248
+    scalar[31] &= 127
+    scalar[31] |= 64
+
+    x_1 = int.from_bytes(u_coordinate, "little")
+    x_2 = 1
+    z_2 = 0
+    x_3 = x_1
+    z_3 = 1
+    swap = 0
+    a24 = 121665
+
+    for t in reversed(range(255)):
+        k_t = (scalar[t // 8] >> (t & 7)) & 1
+        swap ^= k_t
+        if swap:
+            x_2, x_3 = x_3, x_2
+            z_2, z_3 = z_3, z_2
+        swap = k_t
+
+        a = (x_2 + z_2) % p
+        aa = (a * a) % p
+        b = (x_2 - z_2) % p
+        bb = (b * b) % p
+        e = (aa - bb) % p
+        c = (x_3 + z_3) % p
+        d = (x_3 - z_3) % p
+        da = (d * a) % p
+        cb = (c * b) % p
+        x_3 = ((da + cb) ** 2) % p
+        z_3 = (x_1 * ((da - cb) ** 2)) % p
+        x_2 = (aa * bb) % p
+        z_2 = (e * (aa + a24 * e)) % p
+
+    if swap:
+        x_2, x_3 = x_3, x_2
+        z_2, z_3 = z_3, z_2
+
+    return (x_2 * pow(z_2, p - 2, p) % p).to_bytes(32, "little")
+
+
+def generate_reality_keys_with_python() -> tuple:
+    private_key = os.urandom(32)
+    public_key = reality_x25519(private_key, bytes([9]) + bytes(31))
+    return reality_key_b64(private_key), reality_key_b64(public_key)
+
+
 def generate_reality_keys() -> tuple:
     try:
         return run_reality_x25519_command(["xray", "x25519"])
@@ -750,7 +804,12 @@ def generate_reality_keys() -> tuple:
         return run_reality_x25519_command(
             ["docker", "run", "--rm", "teddysun/xray", "xray", "x25519"]
         )
-    except (FileNotFoundError, subprocess.CalledProcessError, ValueError) as e:
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        pass
+
+    try:
+        return generate_reality_keys_with_python()
+    except Exception as e:
         sys.exit(
             error
             + "ERROR : "
