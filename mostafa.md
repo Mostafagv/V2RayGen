@@ -1,2 +1,2 @@
-first option: `sudo python3 V2RayGen.py --vless --tcp --reality --vision`
-second option: `sudo python3 V2RayGen.py --vless --tcp --xtls`
+first option: `curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --tcp --reality --vision`
+second option: `curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --tcp --xtls`
