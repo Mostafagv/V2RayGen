@@ -43,7 +43,7 @@ The XRayAgent provides user management for XRay configuration, offering CRUD ope
 
 ## **Usage**
 
-`curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | python3 - -h`
+`curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | python3 - -h`
 
 ![Sample](contents/content1.png)
 
@@ -71,13 +71,13 @@ You can use one of the following protocols for installation and change its setti
 ### **Quick `Xray` Setup with Default Setting** :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess
 ```
 
 OR
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py --output V2RayGen.py
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py --output V2RayGen.py
 sudo python3 V2RayGen.py --vmess
 ```
 
@@ -92,55 +92,55 @@ sudo python3 V2RayGen.py --vmess
 VLESS :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vless
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless
 ```
 
 VMESS + TLS with blocking option :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tls --block
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tls --block
 ```
 
 VMESS + TLS with blocking iranian domains and IPs option :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tls --blockir
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tls --blockir
 ```
 
 VMESS + Changing client-side HTTP and SOCKS port :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --chttp 4020 --csocks 8080
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --chttp 4020 --csocks 8080
 ```
 
 VMESS + TCP Network Stream :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tcp
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tcp
 ```
 
 VMESS + TCP Network Stream + TLS and QRCode :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tcp --tls --qrcode
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vmess --tcp --tls --qrcode
 ```
 
 VLESS + Using Google DNS :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --dns google
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --dns google
 ```
 
 VLESS + TCP + XTLS :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --tcp --xtls
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --vless --tcp --xtls
 ```
 
 ShadowSocks + adding shadowsocks port to server :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sudo python3 - --shadowsocks --firewall
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | sudo python3 - --shadowsocks --firewall
 ```
 
 **Parsing Configuration :**
@@ -148,13 +148,13 @@ curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | sud
 Parse & reading Configuration file :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | python3 - --parseconfig config.json
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | python3 - --parseconfig config.json
 ```
 
 Parse URL and read information :
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py | python3 -  --parse vmess://eyJhZGQiOiIxMjcuMC4wLjEiLCJhaWQiOiIwIiwiaG9zdCI6IiIsImlkIjoiM2JlNjE2NzktOGQzOC00ZWJiLWJjOGItMTQ4ZjE0ZWY5ZTc3IiwibmV0Ijoid3MiLCJwYXRoIjoiL2dyYXBocWwiLCJwb3J0IjoiNDQzIiwicHMiOiJ4cmF5IiwidGxzIjoidGxzIiwidHlwZSI6Im5vbmUiLCJ2IjoiMiIgfQ==
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py | python3 -  --parse vmess://eyJhZGQiOiIxMjcuMC4wLjEiLCJhaWQiOiIwIiwiaG9zdCI6IiIsImlkIjoiM2JlNjE2NzktOGQzOC00ZWJiLWJjOGItMTQ4ZjE0ZWY5ZTc3IiwibmV0Ijoid3MiLCJwYXRoIjoiL2dyYXBocWwiLCJwb3J0IjoiNDQzIiwicHMiOiJ4cmF5IiwidGxzIjoidGxzIiwidHlwZSI6Im5vbmUiLCJ2IjoiMiIgfQ==
 ```
 
 ---
@@ -166,13 +166,13 @@ XRayAgent is a Simple User Management for XRay Configuration
 ### Download Script & Run With Python3:
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/V2RayGen.py --output /tmp/v.py && python3 /tmp/v.py --agent
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/V2RayGen.py --output /tmp/v.py && python3 /tmp/v.py --agent
 ```
 
 OR
 
 ```bash
-curl https://raw.githubusercontent.com/SonyaCore/V2RayGen/main/XRayAgent.py --output XRayAgent.py
+curl https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/XRayAgent.py --output XRayAgent.py
 python3 XRayAgent.py
 ```
 
@@ -512,14 +512,14 @@ Licensed under the [GPL-3][license] license.
 [tether-button]: https://img.shields.io/badge/ERC20-Tether-purple
 [bitcoin-button]: https://img.shields.io/badge/BTC-Bitcoin-orange
 [ethereum-button]: https://img.shields.io/badge/ETH-Ethereum-blue
-[contributors-shield]: https://img.shields.io/github/contributors/SonyaCore/V2RayGen?style=flat
-[contributors-url]: https://github.com/SonyaCore/V2RayGen/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/SonyaCore/V2RayGen?style=flat
-[forks-url]: https://github.com/SonyaCore/V2RayGen/network/members
-[stars-shield]: https://img.shields.io/github/stars/SonyaCore/V2RayGen?style=flat
-[stars-url]: https://github.com/SonyaCore/V2RayGen/stargazers
-[issues-shield]: https://img.shields.io/github/issues/SonyaCore/V2RayGen?style=flat
-[issues-url]: https://github.com/SonyaCore/V2RayGen/issues
+[contributors-shield]: https://img.shields.io/github/contributors/Mostafagv/V2RayGen?style=flat
+[contributors-url]: https://github.com/Mostafagv/V2RayGen/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/Mostafagv/V2RayGen?style=flat
+[forks-url]: https://github.com/Mostafagv/V2RayGen/network/members
+[stars-shield]: https://img.shields.io/github/stars/Mostafagv/V2RayGen?style=flat
+[stars-url]: https://github.com/Mostafagv/V2RayGen/stargazers
+[issues-shield]: https://img.shields.io/github/issues/Mostafagv/V2RayGen?style=flat
+[issues-url]: https://github.com/Mostafagv/V2RayGen/issues
 [telegram-shield]: https://img.shields.io/badge/Telegram-blue.svg?style=flat&logo=telegram
 [telegram-url]: https://t.me/ReiNotes
 [license]: LICENCE
