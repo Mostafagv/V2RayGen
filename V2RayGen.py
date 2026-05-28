@@ -1878,7 +1878,8 @@ def client_side_configuration(protocol):
         tls_client_type = "tlsSettings"
         security = "tls"
 
-    tls_client = """
+    if not args.reality:
+        tls_client = """
         "security": "%s",
         "%s": {
           "allowInsecure": true,
@@ -1888,9 +1889,9 @@ def client_side_configuration(protocol):
           "fingerprint": ""
         }
         """ % (
-        security,
-        tls_client_type,
-    )
+            security,
+            tls_client_type,
+        )
 
     if args.tcp or args.shadowsocks or args.xtls or args.reality:
         network = "tcp"
