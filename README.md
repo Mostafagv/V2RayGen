@@ -154,6 +154,20 @@ Optional:
 
 REALITY replaces normal TLS certificate handling and does not use this repo's self-signed certificate generation. Vision sets the VLESS user flow to `xtls-rprx-vision`.
 
+Validate a VLESS / REALITY client link:
+
+```bash
+python3 tests/smoke_config.py --link 'vless://...' --syntax-only
+```
+
+Run an end-to-end proxy smoke test with Xray:
+
+```bash
+python3 tests/smoke_config.py --link 'vless://...' --live --download-xray
+```
+
+The live smoke test starts a temporary local SOCKS inbound, sends a request through the provided outbound, and reports the observed egress trace. If Xray is already installed, omit `--download-xray`; or pass an explicit binary with `--xray /path/to/xray`.
+
 ShadowSocks + adding shadowsocks port to server :
 
 ```bash
