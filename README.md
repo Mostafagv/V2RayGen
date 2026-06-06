@@ -149,10 +149,12 @@ Optional:
 ```bash
 --reality-dest www.microsoft.com:443
 --reality-server-name www.microsoft.com
+--sni www.microsoft.com
 --reality-short-id <hex>
 ```
 
 REALITY replaces normal TLS certificate handling and does not use this repo's self-signed certificate generation. Vision sets the VLESS user flow to `xtls-rprx-vision`.
+When REALITY is enabled, `--reality-dest` is checked with a TLS handshake using the configured SNI before configs are generated.
 
 Validate a VLESS / REALITY client link:
 
@@ -347,6 +349,12 @@ none : Nothing will be printed.
 > --vmess --tls will create a vmess with self-signed tls
 >
 > `it's important to enable allow insecure tls on your client`
+
+`sni` sets the TLS/XTLS/REALITY server name from terminal.
+
+> Example: `--vless --tcp --reality --vision --sni www.cloudflare.com --reality-dest www.cloudflare.com:443`
+>
+> `--sni` also overrides `--reality-server-name` when both are provided.
 
 `xtls` Using XTLS in specified protocol
 
