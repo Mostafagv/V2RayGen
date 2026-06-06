@@ -20,6 +20,8 @@ import csv
 import re
 import platform
 import ipaddress
+import socket
+import ssl
 from urllib.parse import quote, unquote
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
@@ -236,6 +238,14 @@ streamsettingsparser.add_argument(
     default="www.microsoft.com",
 )
 streamsettingsparser.add_argument(
+    "--sni",
+    "--server-name",
+    action="store",
+    type=str,
+    metavar="",
+    help="TLS/XTLS/REALITY server name/SNI. default: [www.microsoft.com]",
+)
+streamsettingsparser.add_argument(
     "--reality-short-id",
     action="store",
     type=str,
@@ -402,6 +412,8 @@ opt.add_argument("-v", "--version", action="version", version="%(prog)s " + VERS
 
 # Arg Parse
 args = parser.parse_args()
+SNI = args.sni or args.reality_server_name
+args.reality_server_name = SNI
 
 # ------------------------------ Miscellaneous ------------------------------- #
 
@@ -631,13 +643,12 @@ def create_key():
     """
     create self signed key with openssl
     """
-    random_domain = get_random_charaters(8)
     countrycode = get_country()
     print(green)
     subprocess.run(
         "openssl req -new -newkey rsa:4096 -days 735 -nodes -x509 \
-    -subj '/C={}/ST=Denial/L=String/O=Dis/CN=www.{}.{}' -keyout {} -out {}".format(
-            countrycode, random_domain, countrycode, SELFSIGEND_KEY, SELFSIGEND_CERT
+    -subj '/C={}/ST=Denial/L=String/O=Dis/CN={}' -keyout {} -out {}".format(
+            countrycode, SNI, SELFSIGEND_KEY, SELFSIGEND_CERT
         ),
         shell=True,
         check=True,
@@ -1882,6 +1893,7 @@ def client_side_configuration(protocol):
         tls_client = """
         "security": "%s",
         "%s": {
+          "serverName": "%s",
           "allowInsecure": true,
           "alpn": [
             "http/1.1"
@@ -1891,6 +1903,7 @@ def client_side_configuration(protocol):
         """ % (
             security,
             tls_client_type,
+            SNI,
         )
 
     if args.tcp or args.shadowsocks or args.xtls or args.reality:
@@ -2590,8 +2603,9 @@ def vless_link_generator(id, port, net, path, security, name) -> str:
             id, ServerIP, port, query, quote(name, safe="")
         )
     else:
-        raw_link = "{}@{}:{}?path={}&security={}&encryption=none&type={}#{}".format(
-            id, ServerIP, port, path, security, net, name
+        sni = "&sni={}".format(quote(SNI, safe="")) if security in ("tls", "xtls") else ""
+        raw_link = "{}@{}:{}?path={}&security={}&encryption=none&type={}{}#{}".format(
+            id, ServerIP, port, path, security, net, sni, name
         )
 
     vless_link = prelink + raw_link
@@ -2612,8 +2626,9 @@ def trojan_link_generator(password, port, security, type, path, name) -> str:
         print(yellow + "! Use below link for your xray or v2ray client" + reset)
 
     prelink = "trojan://"
-    raw_link = "{}@{}:{}?allowInsecure={}&security={}&type={}&path={}#{}".format(
-        password, ServerIP, port, 1, security, type, path, name
+    sni = "&sni={}".format(quote(SNI, safe="")) if security in ("tls", "xtls") else ""
+    raw_link = "{}@{}:{}?allowInsecure={}&security={}&type={}&path={}{}#{}".format(
+        password, ServerIP, port, 1, security, type, path, sni, name
     )
 
     trojan_link = prelink + raw_link
@@ -2802,6 +2817,27 @@ def reality_check():
 
     if args.reality_server_name == None or ":" in args.reality_server_name:
         base_error("--reality-server-name must be a host name without port")
+
+    if args.reality:
+        validate_reality_dest(args.reality_dest, args.reality_server_name)
+
+
+def validate_reality_dest(dest, server_name, timeout=8) -> None:
+    host, port = dest.rsplit(":", 1)
+    if not host or not port.isdigit():
+        base_error("--reality-dest must be in host:port format")
+
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=server_name):
+                pass
+    except (OSError, ssl.SSLError) as exc:
+        base_error(
+            "--reality-dest {} is not a valid TLS destination for SNI {}: {}".format(
+                dest, server_name, exc
+            )
+        )
 
 
 # ------------------------------ Error Messages ------------------------------- #
