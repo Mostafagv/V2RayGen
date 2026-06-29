@@ -22,6 +22,7 @@ import platform
 import ipaddress
 import socket
 import ssl
+import pwd
 from urllib.parse import quote, unquote
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
@@ -42,6 +43,7 @@ UUID = uuid.uuid4()
 # Config Name
 CONFIGNAME = "config.json"
 OBFS = "docker-compose.yml"
+LINK_HISTORY_FILENAME = "v2raygen-links.txt"
 
 SELFSIGEND_CERT = "host.cert"
 SELFSIGEND_KEY = "host.key"
@@ -2024,6 +2026,51 @@ def client_side_configuration(protocol):
 # -------------------------------- Config Creation --------------------------------- #
 
 
+def user_home():
+    """
+    Return the invoking user's home directory, even when the script runs with sudo.
+    """
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        try:
+            return pwd.getpwnam(sudo_user).pw_dir
+        except KeyError:
+            pass
+    return os.path.expanduser("~")
+
+
+def save_generated_link(protocol, link):
+    link_file = os.path.join(user_home(), LINK_HISTORY_FILENAME)
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S %z")
+    entry = "[{}] {} {}: {}\n".format(
+        timestamp, protocol, args.linkname, link
+    )
+
+    try:
+        with open(link_file, "a") as file:
+            file.write(entry)
+
+        if (
+            os.geteuid() == 0
+            and os.environ.get("SUDO_UID")
+            and os.environ.get("SUDO_GID")
+        ):
+            os.chown(
+                link_file,
+                int(os.environ["SUDO_UID"]),
+                int(os.environ["SUDO_GID"]),
+            )
+
+        print(blue + "! Saved link to " + reset + link_file)
+    except OSError as err:
+        print(
+            error
+            + "ERROR : "
+            + reset
+            + "Could not save link to {}: {}".format(link_file, err)
+        )
+
+
 def xray_create(protocol):
     dnsselect()
 
@@ -2067,6 +2114,7 @@ def xray_create(protocol):
             args.alterid, UUID, net, path, PORT, args.linkname, TLSTYPE, header
         )
         print(vmess_link)
+        save_generated_link(protocol, vmess_link)
 
         if args.qrcode:
             print(yellow + "! QRCode :" + reset)
@@ -2078,6 +2126,7 @@ def xray_create(protocol):
     elif protocol == "VLESS":
         vless_link = vless_link_generator(UUID, PORT, net, path, TLSTYPE, args.linkname)
         print(vless_link)
+        save_generated_link(protocol, vless_link)
 
         if args.qrcode:
             print(yellow + "! QRCode :" + reset)
@@ -2089,6 +2138,7 @@ def xray_create(protocol):
             trojanpassword, PORT, TLSTYPE, net, path, args.linkname
         )
         print(trojan_link)
+        save_generated_link(protocol, trojan_link)
 
         if args.qrcode:
             print(yellow + "! QRCode :" + reset)
@@ -2098,6 +2148,7 @@ def xray_create(protocol):
     elif protocol == "SHADOWSOCKS":
         shadowsocks_link = shadowsocks_link_generator()
         print(shadowsocks_link)
+        save_generated_link(protocol, shadowsocks_link)
 
         if args.qrcode:
             print(yellow + "! QRCode :" + reset)
