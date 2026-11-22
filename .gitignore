@@ -58,3 +58,8 @@ venv.bak/
 .pyre/
 __pycache__/
 
+
+# Local secrets (DigitalOcean token etc.)
+*.env
+do.env
+*.token
