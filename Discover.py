@@ -13,7 +13,14 @@ author's permission):
 
 Commands:
   scan  [--mirror URL] [--channel NAME] ...   collect, test and store working links
-  list  [--count N] [--output FILE]           print stored links, fastest first
+  test  [--rounds N] [--interval SECONDS]     re-test stored links; tracks reliability over time
+  list  [--sort score|speed|reliability]      print stored links, best first
+        [--details] [--count N] [--output FILE]
+
+Speed and reliability are measured from the machine you run this on. To rank
+nodes for Iran, run scan/test on a computer inside Iran (a server abroad only
+shows how the nodes look from abroad). Run `test` several times, spaced out, for
+a meaningful reliability figure.
 
 Sources can also come from ~/.config/v2raygen/mirrors.txt and channels.txt
 (one URL / channel name per line). Telegram credentials (TELEGRAM_API_ID,
@@ -36,6 +43,7 @@ import shutil
 import signal
 import socket
 import stat
+import statistics
 import sys
 import tempfile
 import time
@@ -61,6 +69,7 @@ SPEED_TIMEOUT = 12
 MAX_FETCH_BYTES = 5 * 1024 * 1024
 # macOS allows only 256 open files by default; stay well under it.
 MAX_PROBES = 100
+KEEP_SPEEDS = 10  # recent successful speeds kept per node
 
 
 def die(msg):
@@ -383,11 +392,15 @@ async def wait_for_port(port, timeout=4.0):
 
 
 async def speed_test(xray, node):
-    """Download 100 KB through the node via xray; return KB/s, or 0.0 if it failed."""
+    """Download 100 KB through the node via xray.
+
+    Returns (KB/s, ms until the first byte arrived), or (0.0, None) if the test failed.
+    """
+    failed = (0.0, None)
     socks_port = free_port()
     config = build_xray_config(node, socks_port)
     if config is None:
-        return 0.0
+        return failed
     fd, path = tempfile.mkstemp(suffix=".json", prefix="xray_test_")
     proc = None
     try:
@@ -399,22 +412,22 @@ async def speed_test(xray, node):
             start_new_session=True,
         )
         if not await wait_for_port(socks_port):
-            return 0.0
+            return failed
         curl = await asyncio.create_subprocess_exec(
             "curl", "-s", "--socks5-hostname", "127.0.0.1:{}".format(socks_port),
             "-o", os.devnull, "-m", str(SPEED_TIMEOUT), "--connect-timeout", "5",
-            "-w", "%{size_download} %{speed_download}", SPEED_URL,
+            "-w", "%{size_download} %{speed_download} %{time_starttransfer}", SPEED_URL,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         )
         out, _ = await asyncio.wait_for(curl.communicate(), timeout=SPEED_TIMEOUT + 5)
         if curl.returncode != 0:
-            return 0.0
-        size, speed = out.decode().split()
+            return failed
+        size, speed, ttfb = out.decode().split()
         if int(size) < SPEED_BYTES:
-            return 0.0
-        return round(float(speed) / 1024, 2)
+            return failed
+        return round(float(speed) / 1024, 2), int(float(ttfb) * 1000)
     except (OSError, ValueError, asyncio.TimeoutError):
-        return 0.0
+        return failed
     finally:
         if proc is not None:
             try:
@@ -449,8 +462,57 @@ def save_store(store):
     os.replace(tmp, STORE_FILE)
 
 
-def ranked(store):
-    return sorted(store.values(), key=lambda n: n.get("speed_kbps", 0), reverse=True)
+def stats(entry):
+    """(attempts, passes). Entries stored before stats existed count as one passed test."""
+    attempts = entry.get("attempts", 1)
+    passes = entry.get("passes", 1 if entry.get("speed_kbps", 0) > 0 else 0)
+    return attempts, passes
+
+
+def reliability(entry):
+    """Share of tests passed, smoothed so one lucky test does not outrank five good ones."""
+    attempts, passes = stats(entry)
+    return (passes + 1) / (attempts + 2)
+
+
+def record_result(entry, speed, ttfb):
+    """Add one test outcome to an entry. `speed` is KB/s, 0 means the test failed."""
+    attempts, passes = stats(entry)
+    entry["attempts"] = attempts + 1
+    entry["passes"] = passes
+    entry["last_checked"] = int(time.time())
+    if speed > 0:
+        entry["passes"] = passes + 1
+        entry["last_ok"] = entry["last_checked"]
+        speeds = entry["speeds"] if "speeds" in entry else [entry["speed_kbps"]] if entry.get("speed_kbps", 0) > 0 else []
+        entry["speeds"] = [x for x in speeds + [speed] if x > 0][-KEEP_SPEEDS:]
+        entry["speed_kbps"] = round(statistics.median(entry["speeds"]), 2)
+        ttfbs = entry.get("ttfbs", []) + [ttfb]
+        entry["ttfbs"] = ttfbs[-KEEP_SPEEDS:]
+        entry["ttfb_ms"] = int(statistics.median(entry["ttfbs"]))
+
+
+def new_entry(node, speed, ttfb):
+    """Store entry for a node that has just passed its first test."""
+    now = int(time.time())
+    return {
+        "key": node["key"], "protocol": node["protocol"], "host": node["host"], "port": node["port"],
+        "link": node["link"], "attempts": 1, "passes": 1 if speed > 0 else 0, "last_checked": now,
+        "speed_kbps": speed, "speeds": [speed] if speed > 0 else [],
+        "ttfb_ms": ttfb, "ttfbs": [ttfb] if ttfb is not None else [], "last_ok": now if speed > 0 else None,
+    }
+
+
+SORTS = {
+    # reliability x speed: a fast node that often fails ranks below a slightly slower steady one
+    "score": lambda n: reliability(n) * n.get("speed_kbps", 0),
+    "speed": lambda n: n.get("speed_kbps", 0),
+    "reliability": lambda n: (reliability(n), n.get("speed_kbps", 0)),
+}
+
+
+def ranked(store, by="score"):
+    return sorted(store.values(), key=SORTS[by], reverse=True)
 
 
 # ----------------------------------------------------------------- commands ---
@@ -498,7 +560,7 @@ async def run_scan(args, config):
 
         async def test(node):
             async with sem:
-                node["speed_kbps"] = await speed_test(xray, node)
+                node["speed_kbps"], node["ttfb_ms"] = await speed_test(xray, node)
                 return node
 
         tested = await asyncio.gather(*[test(n) for n in passing])
@@ -518,12 +580,8 @@ async def run_scan(args, config):
             del store[node["key"]]
             dropped += 1
 
-    now = int(time.time())
     for node in passing:
-        store[node["key"]] = {
-            "key": node["key"], "protocol": node["protocol"], "host": node["host"], "port": node["port"],
-            "link": node["link"], "speed_kbps": node.get("speed_kbps", 0.0), "last_checked": now,
-        }
+        store[node["key"]] = new_entry(node, node.get("speed_kbps", 0.0), node.get("ttfb_ms"))
     save_store(store)
     print("Added {}, dropped {} dead, {} stored. See: list".format(len(passing), dropped, len(store)))
 
@@ -535,12 +593,76 @@ def cmd_scan(args, config):
         sys.exit(130)
 
 
-def cmd_list(args, config):
-    links = [n["link"] for n in ranked(load_store())]
-    if args.count:
-        links = links[: args.count]
-    if not links:
+async def run_test(args):
+    xray = shutil.which(args.xray) if args.xray else shutil.which("xray")
+    if not xray:
+        die("xray not found. Install it or pass --xray PATH.")
+    if not shutil.which("curl"):
+        die("curl not found (needed for the speed test).")
+    store = load_store()
+    if not store:
         die("Nothing stored yet. Run: scan")
+
+    nodes = {}
+    for key, entry in list(store.items()):
+        node = parse_link(entry.get("link", ""))
+        if node is None:
+            del store[key]  # unreadable or unsafe entry
+        else:
+            node["link"] = entry["link"]  # keep the stored link and remark
+            nodes[key] = node
+    sem = asyncio.Semaphore(args.concurrency)
+
+    async def one(key):
+        async with sem:
+            return key, await speed_test(xray, nodes[key])
+
+    for round_no in range(1, args.rounds + 1):
+        if round_no > 1 and args.interval:
+            log("waiting {}s before round {}".format(args.interval, round_no))
+            await asyncio.sleep(args.interval)
+        results = await asyncio.gather(*[one(k) for k in nodes])
+        for key, (speed, ttfb) in results:
+            record_result(store[key], speed, ttfb)
+        save_store(store)  # keep progress if interrupted
+        log("round {}/{}: {}/{} passed".format(round_no, args.rounds, sum(1 for _, r in results if r[0] > 0), len(results)))
+
+    dropped = 0
+    if not args.keep_failing:
+        for key in [k for k, n in store.items() if stats(n)[0] >= 3 and stats(n)[1] / stats(n)[0] < 0.34]:
+            del store[key]
+            dropped += 1
+        save_store(store)
+    print("Tested {} nodes, dropped {} unreliable, {} stored. See: list --details".format(len(nodes), dropped, len(store)))
+
+
+def cmd_test(args, config):
+    try:
+        asyncio.run(run_test(args))
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
+def format_details(entries):
+    lines = ["{:>3}  {:>5}  {:>9}  {:>8}  {:>6}  {}".format("#", "rel", "KB/s", "ttfb ms", "tests", "node")]
+    for i, n in enumerate(entries, 1):
+        attempts, passes = stats(n)
+        lines.append("{:>3}  {:>4.0%}  {:>9.1f}  {:>8}  {:>6}  {} {}:{}".format(
+            i, passes / attempts, n.get("speed_kbps", 0), n.get("ttfb_ms") or "-", attempts,
+            n["protocol"], n["host"], n["port"]))
+    return "\n".join(lines)
+
+
+def cmd_list(args, config):
+    entries = ranked(load_store(), args.sort)
+    if args.count:
+        entries = entries[: args.count]
+    if not entries:
+        die("Nothing stored yet. Run: scan")
+    if args.details:
+        print(format_details(entries))
+        return
+    links = [n["link"] for n in entries]
     text = "\n".join(links) + "\n"
     if args.output:
         Path(args.output).write_text(text)
@@ -562,13 +684,23 @@ def build_parser():
     scan.add_argument("--concurrency", type=int, default=5, help="parallel xray speed tests (default: 5)")
     scan.add_argument("--no-speedtest", action="store_true", help="TCP check only; skip the xray speed test")
 
-    lst = sub.add_parser("list", help="print stored links, fastest first")
-    lst.add_argument("--count", type=int, help="only the N fastest")
+    test = sub.add_parser("test", help="re-test stored links through xray and update their reliability")
+    test.add_argument("--rounds", type=int, default=3, help="speed tests per node (default: 3)")
+    test.add_argument("--interval", type=int, default=0, help="seconds to wait between rounds (default: 0)")
+    test.add_argument("--xray", help="path to the xray binary (default: found on PATH)")
+    test.add_argument("--concurrency", type=int, default=5, help="parallel xray speed tests (default: 5)")
+    test.add_argument("--keep-failing", action="store_true", help="do not drop nodes that fail most tests")
+
+    lst = sub.add_parser("list", help="print stored links, best first")
+    lst.add_argument("--sort", choices=sorted(SORTS), default="score",
+                     help="score = reliability x speed (default), speed, or reliability")
+    lst.add_argument("--details", action="store_true", help="show a table of speed, reliability and latency instead of links")
+    lst.add_argument("--count", type=int, help="only the N best")
     lst.add_argument("--output", help="write links to this file instead of stdout")
     return parser
 
 
-COMMANDS = {"scan": cmd_scan, "list": cmd_list}
+COMMANDS = {"scan": cmd_scan, "test": cmd_test, "list": cmd_list}
 
 
 def main(argv=None):

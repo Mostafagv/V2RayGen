@@ -159,10 +159,10 @@ async def fake_xray_failure():
     fake.chmod(0o755)
     before = set(Path(tempfile.gettempdir()).glob("xray_test_*.json"))
     node = d.parse_link(REALITY)
-    assert await d.speed_test(str(fake), node) == 0.0
+    assert await d.speed_test(str(fake), node) == (0.0, None)
     assert set(Path(tempfile.gettempdir()).glob("xray_test_*.json")) == before
     # A node whose transport cannot be tested is skipped without launching anything.
-    assert await d.speed_test(str(fake), d.parse_link(REALITY.replace("type=tcp", "type=xhttp"))) == 0.0
+    assert await d.speed_test(str(fake), d.parse_link(REALITY.replace("type=tcp", "type=xhttp"))) == (0.0, None)
 
 
 def check_store_and_list():
@@ -173,6 +173,57 @@ def check_store_and_list():
     })
     assert [n["link"] for n in d.ranked(d.load_store())] == ["vless://fast", "vless://slow"]
     assert oct(d.STORE_FILE.stat().st_mode & 0o777) == "0o600"
+
+
+def check_stats_and_ranking():
+    node = d.parse_link(REALITY)
+    steady = d.new_entry(node, 100.0, 300)
+    for speed in (110.0, 90.0, 100.0, 105.0):
+        d.record_result(steady, speed, 300)
+    assert d.stats(steady) == (5, 5)
+    assert steady["speed_kbps"] == 100.0 and steady["ttfb_ms"] == 300
+
+    flaky = d.new_entry(d.parse_link(VMESS), 150.0, 200)  # faster, but fails most tests
+    for speed in (0.0, 0.0, 0.0, 140.0):
+        d.record_result(flaky, speed, 200)
+    assert d.stats(flaky) == (5, 2)
+    assert d.reliability(steady) > d.reliability(flaky)
+    assert flaky["speed_kbps"] == 145.0  # median of the two successes
+
+    # A failed test counts as an attempt without touching the speed.
+    before = steady["speed_kbps"]
+    d.record_result(steady, 0.0, None)
+    assert d.stats(steady) == (6, 5) and steady["speed_kbps"] == before
+
+    # Entries stored before stats existed still rank and update cleanly.
+    legacy = {"key": "k", "protocol": "ss", "host": "h", "port": 1, "link": "ss://x", "speed_kbps": 50.0}
+    assert d.stats(legacy) == (1, 1)
+    d.record_result(legacy, 70.0, 100)
+    assert d.stats(legacy) == (2, 2) and legacy["speeds"] == [50.0, 70.0] and legacy["speed_kbps"] == 60.0
+
+    store = {"steady": steady, "flaky": flaky}
+    assert [n["key"] for n in d.ranked(store, "speed")] == [flaky["key"], steady["key"]]
+    assert [n["key"] for n in d.ranked(store, "reliability")] == [steady["key"], flaky["key"]]
+    assert [n["key"] for n in d.ranked(store, "score")] == [steady["key"], flaky["key"]]
+    table = d.format_details(d.ranked(store))
+    assert "rel" in table and "45.67.89.10:443" in table
+
+
+def check_test_command():
+    # With an xray that never works, every round fails and unreliable nodes are dropped.
+    fake = Path(os.environ["V2RAYGEN_CONFIG_DIR"]) / "fake_xray.sh"
+    fake.write_text("#!/bin/sh\nexit 1\n")
+    fake.chmod(0o755)
+    keep = d.new_entry(d.parse_link(REALITY), 100.0, 300)
+    d.save_store({keep["key"]: keep, "junk": {"key": "junk", "link": "not-a-link"}})
+    quiet = open(os.devnull, "w")
+    with contextlib.redirect_stderr(quiet), contextlib.redirect_stdout(quiet):
+        d.main(["test", "--rounds", "1", "--xray", str(fake)])
+        stored = d.load_store()
+        assert list(stored) == [keep["key"]]  # unreadable entry removed; 1 pass in 2 tests is kept
+        assert d.stats(stored[keep["key"]]) == (2, 1)
+        d.main(["test", "--rounds", "1", "--xray", str(fake)])
+    assert d.load_store() == {}  # 1 pass in 3 tests (33%) is below the keep threshold
 
 
 def check_cli_errors():
@@ -191,6 +242,8 @@ if __name__ == "__main__":
     check_xray_config()
     asyncio.run(local_tcp_and_mirror())
     asyncio.run(fake_xray_failure())
+    check_stats_and_ranking()
     check_store_and_list()
+    check_test_command()
     check_cli_errors()
     print("Discover smoke tests passed")
