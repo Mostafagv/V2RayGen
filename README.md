@@ -44,3 +44,29 @@ python3 DOManager.py destroy v2raygen-fra1-ab12           # delete permanently; 
 ```
 
 DOManager only touches droplets tagged `v2raygen`. Links are cached in `~/.config/v2raygen/links.json`; use `list --links --refresh` to re-read them from the servers.
+
+## Discover: find working proxy links from public sources
+
+`Discover.py` runs on your own machine (Python 3, no extra packages). It collects vless/vmess/trojan/ss links from public subscription URLs and Telegram channels, keeps the ones whose server answers, speed-tests them through `xray` and `curl`, and stores the working ones ranked by speed. The pipeline is ported from [sinachaichi/scanner](https://github.com/sinachaichi/scanner) with the original author's permission.
+
+Nodes found this way are run by strangers, who can read the traffic you send through them. Use them for testing, not for anything sensitive. Links that point at private or loopback addresses are skipped.
+
+```bash
+python3 Discover.py scan --mirror https://example.com/sub.txt            # one or more sources
+python3 Discover.py scan --mirror URL1 --mirror URL2 --concurrency 3
+python3 Discover.py scan --no-speedtest --mirror URL                     # TCP check only, no xray needed
+python3 Discover.py list --count 10                                      # 10 fastest
+python3 Discover.py list --output working.txt
+```
+
+Sources can also live in `~/.config/v2raygen/mirrors.txt` and `channels.txt` (one per line), so a bare `scan` uses them. Each `scan` also re-checks everything already stored and drops nodes that stopped answering. Results are kept in `~/.config/v2raygen/discovered.json`.
+
+Telegram channels need `pip install telethon` and credentials from https://my.telegram.org, stored outside the repo:
+
+```bash
+printf 'TELEGRAM_API_ID=123456\nTELEGRAM_API_HASH=abcdef...\n' > ~/.config/v2raygen/discover.env
+chmod 600 ~/.config/v2raygen/discover.env
+python3 Discover.py scan --channel some_public_channel
+```
+
+The Telegram session file (`telegram_session.session`) is as powerful as a logged-in account; keep it private. The speed test needs `xray` on your PATH (or `--xray PATH`) and `curl`. Offline tests: `python3 tests/smoke_discover.py`.
