@@ -59,6 +59,16 @@ def check_parse():
     v = d.parse_link(VMESS)
     assert (v["host"], v["port"], v["user_id"]) == ("45.67.89.11", 8443, "uuid-vmess")
 
+    # A vmess link with junk after the padding is stored in clean canonical form.
+    padded = json.dumps(VMESS_JSON)
+    while not base64.b64encode(padded.encode()).decode().endswith("="):
+        padded += " "
+    dirty = d.parse_link("vmess://" + base64.b64encode(padded.encode()).decode() + "ss#whatever")
+    assert dirty is not None and dirty["link"].startswith("vmess://") and "#" not in dirty["link"]
+    clean = json.loads(base64.b64decode(dirty["link"][len("vmess://"):]))
+    assert clean["add"] == "45.67.89.11" and clean["ps"].startswith("discovered-")
+    assert d.parse_link(dirty["link"])["host"] == "45.67.89.11"
+
     assert d.parse_link(TROJAN)["user_id"] == "pa$$"
     for link, host in ((SS, "45.67.89.13"), (SS_LEGACY, "45.67.89.14")):
         s = d.parse_link(link)

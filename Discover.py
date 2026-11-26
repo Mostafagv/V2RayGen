@@ -160,7 +160,10 @@ def parse_link(raw):
         return None
     try:
         if proto == "vmess":
-            data = json.loads(b64decode(raw.split("://", 1)[1].split("#")[0]))
+            payload = re.match(r"[A-Za-z0-9+/_-]+={0,2}", raw.split("://", 1)[1])  # drop junk after the padding
+            if payload is None:
+                return None
+            data = json.loads(b64decode(payload.group(0)))
             host, port = str(data["add"]), int(data["port"])
             node = {"user_id": data.get("id"), "method": None, "params": data}
         elif proto == "ss":
@@ -181,7 +184,13 @@ def parse_link(raw):
     if not host_is_public(host):
         return None
     node.update(protocol=proto, host=host, port=port)
-    node["link"] = raw.split("#", 1)[0] + "#discovered-{}".format(random.randint(1000, 9999))
+    remark = "discovered-{}".format(random.randint(1000, 9999))
+    if proto == "vmess":
+        # Re-encode from the decoded JSON so junk after the base64 padding cannot leak into the stored link.
+        data = dict(node["params"], ps=remark)
+        node["link"] = "vmess://" + base64.b64encode(json.dumps(data, separators=(",", ":")).encode()).decode()
+    else:
+        node["link"] = raw.split("#", 1)[0] + "#" + remark
     node["key"] = "{}-{}-{}-{}".format(proto, host, port, node["user_id"])
     return node
 
