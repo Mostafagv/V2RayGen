@@ -70,3 +70,38 @@ python3 Discover.py scan --channel some_public_channel
 ```
 
 The Telegram session file (`telegram_session.session`) is as powerful as a logged-in account; keep it private. The speed test needs `xray` on your PATH (or `--xray PATH`) and `curl`. Offline tests: `python3 tests/smoke_discover.py`.
+
+## Bot: give friends their own link through Telegram
+
+`Bot.py` is an invite-only Telegram bot that runs on the proxy server itself (Python 3, no extra packages). Each person who joins gets their own xray user, so their link is personal: you can cut one person off without changing anyone else's link. People who aren't invited get no answer at all.
+
+It needs a server set up with the VLESS REALITY command above (it reads `/root/config.json` and `/root/v2raygen-links.txt`).
+
+Setup, on the server:
+
+1. In Telegram, talk to [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token it gives you.
+2. Store the token **outside the repo**:
+
+```bash
+mkdir -p ~/.config/v2raygen && chmod 700 ~/.config/v2raygen
+printf 'TELEGRAM_BOT_TOKEN=123456:ABC...\n' > ~/.config/v2raygen/bot.env
+chmod 600 ~/.config/v2raygen/bot.env
+```
+
+3. Get the bot, start it as a service, and make yourself admin:
+
+```bash
+curl -O https://raw.githubusercontent.com/Mostafagv/V2RayGen/main/Bot.py
+sudo python3 Bot.py install-service      # runs at boot; logs: journalctl -u v2raygen-bot -f
+sudo python3 Bot.py invite --admin       # open the printed link yourself
+```
+
+In Telegram, members send `/config` to get their link again. Admins also have `/invite` (a one-time link for one person, valid 7 days), `/invite admin`, `/users` and `/revoke <id>`. The same is available on the server: `python3 Bot.py invite`, `users`, `revoke <id>`.
+
+Notes:
+
+- Adding or removing someone restarts xray, which drops everyone's connections for about a second; apps reconnect on their own. The previous xray config is kept as `/root/config.json.bak`.
+- If the server's IP gets blocked, the bot still reaches everyone through Telegram. Members and invites are kept in `~/.config/v2raygen/bot.json`; it holds everyone's link IDs, so keep it private.
+- Optional settings in `bot.env`: `XRAY_CONFIG`, `XRAY_LINK_FILE`, `XRAY_RESTART_CMD` (default `docker-compose restart` in the config's folder), `BOT_INVITE_DAYS` (default `7`).
+
+Offline tests: `python3 tests/smoke_bot.py`.
