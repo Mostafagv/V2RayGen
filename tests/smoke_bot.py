@@ -130,6 +130,7 @@ def main():
         "XRAY_CONFIG": str(WORK / "config.json"),
         "XRAY_LINK_FILE": str(WORK / "links.txt"),
         "XRAY_RESTART_CMD": "sh -c 'echo x >> restarts'",
+        "BOT_LANGUAGE": "en",
     })
 
     # The first admin joins with an invite made on the command line.
@@ -169,6 +170,19 @@ def main():
     assert "/config" in replies[300][2] and "Admin" not in replies[300][2]
     assert replies[300][3].startswith("Unknown command")
 
+    # /new_config swaps the member's UUID; /config then returns the new link.
+    replies = run_once((300, "/new_config"))
+    assert "old link has stopped working" in replies[300][0]
+    renewed_uuid = re.search(r"vless://([0-9a-f-]{36})@", replies[300][0]).group(1)
+    assert renewed_uuid != member_uuid
+    emails = {c["email"]: c["id"] for c in xray_clients()}
+    assert emails["tg300"] == renewed_uuid and member_uuid not in emails.values()
+    assert renewed_uuid in run_once((300, "/config"))[300][0]
+    replies = run_once((300, "/new_config"))
+    assert "once every 10 minutes" in replies[300][0] and "Try again in 10 min" in replies[300][0]
+    assert {c["email"]: c["id"] for c in xray_clients()}["tg300"] == renewed_uuid
+    member_uuid = renewed_uuid
+
     # A member opening a second normal invite does not use it up.
     replies = run_once((100, "/invite"))
     spare = code_in(replies[100][0])
@@ -188,12 +202,37 @@ def main():
     replies = run_once((100, "/invite"))
     code = code_in(replies[100][0])
     os.environ["XRAY_RESTART_CMD"] = "false"
+    before = (WORK / "config.json").read_text()
     assert run_once((400, "/start " + code)) == {}
     assert "400" not in b.load_store()["users"] and code in b.load_store()["invites"]
+    assert (WORK / "config.json").read_text() == before, "a failed restart puts the old config back"
+    with b.store_lock() as store:
+        store["users"]["100"]["renewed"] = 0
+    replies = run_once((100, "/new_config"))
+    assert "went wrong" in replies[100][0]
+    assert b.load_store()["users"]["100"]["uuid"] == admin_uuid
+    assert (WORK / "config.json").read_text() == before
     os.environ["XRAY_RESTART_CMD"] = "true"
     replies = run_once((400, "/start " + code))
     assert "Welcome!" in replies[400][0]
     assert [c["email"] for c in xray_clients()].count("tg400") == 1
+
+    # Persian.
+    os.environ["BOT_LANGUAGE"] = "fa"
+    replies = run_once((100, "/config"), (100, "/help"), (100, "/revoke 999"), (400, "/nope"))
+    assert "این لینک شخصی شماست" in replies[100][0] and admin_uuid in replies[100][0]
+    assert "/new_config" in replies[100][1] and "مدیریت" in replies[100][1]
+    assert "عضوی با شناسهٔ 999" in replies[100][2]
+    assert replies[400][0].startswith("دستور ناشناخته") and "مدیریت" not in replies[400][0]
+    os.environ["BOT_LANGUAGE"] = "xx"
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        try:
+            b.main(["users"])
+            raise AssertionError("expected exit")
+        except SystemExit:
+            pass
+    assert "BOT_LANGUAGE" in err.getvalue()
+    os.environ["BOT_LANGUAGE"] = "en"
 
     # Expired invites do nothing.
     with b.store_lock() as store:

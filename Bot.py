@@ -17,6 +17,7 @@ Commands:
 Telegram commands:
   /start <code>   join with an invite link (the link does this)
   /config         get your link again
+  /new_config     get a new link; the old one stops working
   /invite         (admin) make a one-time invite link; "/invite admin" for an admin
   /users          (admin) list members
   /revoke <id>    (admin) remove a member
@@ -57,21 +58,97 @@ DEFAULTS = {
     "XRAY_LINK_FILE": "/root/v2raygen-links.txt",
     "XRAY_RESTART_CMD": "",
     "BOT_INVITE_DAYS": "7",
+    "BOT_LANGUAGE": "fa",
 }
 POLL_SECONDS = 50
 VLESS_RE = re.compile(r"vless://\S+")
 
-HELP = (
-    "/config - get your link again\n"
-    "/help - this message"
-)
-ADMIN_HELP = (
-    "\n\nAdmin:\n"
-    "/invite - one-time invite link\n"
-    "/invite admin - invite another admin\n"
-    "/users - list members\n"
-    "/revoke &lt;id&gt; - remove a member"
-)
+NEW_CONFIG_COOLDOWN = 600  # seconds; every new config restarts xray for everyone
+
+# Everything members see in Telegram. Pick with BOT_LANGUAGE (fa or en).
+TEXTS = {
+    "en": {
+        "welcome": "Welcome! ",
+        "link": (
+            "This is your personal link. Copy it into v2rayNG, Hiddify, Streisand "
+            "or another V2Ray app:\n\n<code>{link}</code>\n\n"
+            "Don't share it: it belongs to you, and sharing it can get it cut off. "
+            "Send /config to get it again."
+        ),
+        "new_link": "Your old link has stopped working. ",
+        "too_soon": "You can get a new link once every 10 minutes. Try again in {minutes} min.",
+        "is_admin": "\n\nYou are an admin. Send /help for the admin commands.",
+        "help": (
+            "/config - get your link again\n"
+            "/new_config - get a new link (the old one stops working)\n"
+            "/help - this message"
+        ),
+        "admin_help": (
+            "\n\nAdmin:\n"
+            "/invite - one-time invite link\n"
+            "/invite admin - invite another admin\n"
+            "/users - list members\n"
+            "/revoke &lt;id&gt; - remove a member"
+        ),
+        "unknown": "Unknown command.\n\n",
+        "invite": "One-time invite, valid for {days} days:\n\n{url}",
+        "admin_invite": "One-time admin invite, valid for {days} days:\n\n{url}",
+        "no_users": "No members yet.",
+        "user_line": "{uid} {name} {handle}{admin} - joined {date}",
+        "admin_tag": " (admin)",
+        "revoke_usage": "Usage: /revoke &lt;id&gt; (ids are in /users)",
+        "revoke_self": "You can't revoke yourself.",
+        "no_member": "No member with id {uid}. Ids are in /users.",
+        "removed": "Removed {name}. Their link stopped working.",
+        "error": "Something went wrong on the server. Try again later.",
+        "cmd_config": "Get your link",
+        "cmd_new_config": "Get a new link",
+        "cmd_help": "Help",
+    },
+    "fa": {
+        "welcome": "خوش آمدید! ",
+        "link": (
+            "این لینک شخصی شماست. آن را در v2rayNG، Hiddify، Streisand "
+            "یا یک برنامهٔ V2Ray دیگر وارد کنید:\n\n<code>{link}</code>\n\n"
+            "آن را با کسی به اشتراک نگذارید: این لینک مخصوص شماست و اشتراک‌گذاری آن "
+            "ممکن است باعث قطع شدنش شود. برای دریافت دوباره /config را بفرستید."
+        ),
+        "new_link": "لینک قبلی شما دیگر کار نمی‌کند. ",
+        "too_soon": "هر ۱۰ دقیقه فقط یک بار می‌توانید لینک جدید بگیرید. {minutes} دقیقهٔ دیگر دوباره امتحان کنید.",
+        "is_admin": "\n\nشما مدیر هستید. برای دیدن دستورهای مدیریت /help را بفرستید.",
+        "help": (
+            "/config - دریافت دوبارهٔ لینک\n"
+            "/new_config - دریافت لینک جدید (لینک قبلی از کار می‌افتد)\n"
+            "/help - همین راهنما"
+        ),
+        "admin_help": (
+            "\n\nمدیریت:\n"
+            "/invite - لینک دعوت یک‌بارمصرف\n"
+            "/invite admin - دعوت یک مدیر دیگر\n"
+            "/users - فهرست اعضا\n"
+            "/revoke &lt;id&gt; - حذف یک عضو"
+        ),
+        "unknown": "دستور ناشناخته.\n\n",
+        "invite": "لینک دعوت یک‌بارمصرف، معتبر تا {days} روز:\n\n{url}",
+        "admin_invite": "لینک دعوت مدیر (یک‌بارمصرف)، معتبر تا {days} روز:\n\n{url}",
+        "no_users": "هنوز عضوی وجود ندارد.",
+        "user_line": "{uid} {name} {handle}{admin} - عضویت {date}",
+        "admin_tag": " (مدیر)",
+        "revoke_usage": "روش استفاده: /revoke &lt;id&gt; (شناسه‌ها در /users هستند)",
+        "revoke_self": "نمی‌توانید خودتان را حذف کنید.",
+        "no_member": "عضوی با شناسهٔ {uid} وجود ندارد. شناسه‌ها در /users هستند.",
+        "removed": "{name} حذف شد و لینکش دیگر کار نمی‌کند.",
+        "error": "مشکلی در سرور پیش آمد. لطفاً بعداً دوباره امتحان کنید.",
+        "cmd_config": "دریافت لینک",
+        "cmd_new_config": "دریافت لینک جدید",
+        "cmd_help": "راهنما",
+    },
+}
+
+
+def t(settings, key, **values):
+    texts = TEXTS.get(settings.get("BOT_LANGUAGE"), TEXTS["en"])
+    return texts[key].format(**values) if values else texts[key]
 
 
 class BotError(Exception):
@@ -267,7 +344,14 @@ def set_xray_user(settings, user_id, user_uuid):
         return
     clients[:] = kept
     write_xray_config(path, config)
-    restart_xray(settings)
+    try:
+        restart_xray(settings)
+    except BotError:
+        # Put the old config back so the next restart doesn't load a change nobody recorded.
+        with open(str(path) + ".bak") as old, open(path, "r+") as fh:
+            fh.write(old.read())
+            fh.truncate()
+        raise
 
 
 # ---------------------------------------------------------------- telegram ---
@@ -329,14 +413,22 @@ def display_name(tg_user):
     return name or str(tg_user.get("id"))
 
 
-def link_message(link, welcome=False):
-    head = "Welcome! " if welcome else ""
-    return (
-        head + "This is your personal link. Copy it into v2rayNG, Hiddify, Streisand "
-        "or another V2Ray app:\n\n<code>{}</code>\n\n"
-        "Don't share it: it belongs to you, and sharing it can get it cut off. "
-        "Send /config to get it again.".format(html.escape(link))
-    )
+def link_message(settings, user, head=""):
+    link = member_link(template_link(settings), user["uuid"], link_label(user))
+    return head + t(settings, "link", link=html.escape(link))
+
+
+def new_config(settings, store, uid):
+    """Give a member a fresh UUID; their old link stops working."""
+    user = store["users"][uid]
+    wait = user.get("renewed", 0) + NEW_CONFIG_COOLDOWN - time.time()
+    if wait > 0:
+        return t(settings, "too_soon", minutes=int(wait // 60) + 1)
+    fresh = str(uuid.uuid4())
+    set_xray_user(settings, uid, fresh)
+    user["uuid"] = fresh
+    user["renewed"] = int(time.time())
+    return link_message(settings, user, t(settings, "new_link"))
 
 
 def join(settings, store, code, tg_user):
@@ -373,15 +465,17 @@ def revoke(settings, store, uid):
     return user
 
 
-def format_users(store, markup=False):
+def format_users(store, settings=None, markup=False):
+    settings = settings or {"BOT_LANGUAGE": "en"}
     if not store["users"]:
-        return "No members yet."
+        return t(settings, "no_users")
     lines = []
     for uid, user in sorted(store["users"].items(), key=lambda kv: kv[1].get("joined", 0)):
-        handle = "@" + user["username"] if user.get("username") else ""
-        text = "{} {} {}{} - joined {}".format(
-            uid, user.get("name", ""), handle, " (admin)" if user.get("admin") else "",
-            time.strftime("%Y-%m-%d", time.gmtime(user.get("joined", 0))),
+        text = t(
+            settings, "user_line", uid=uid, name=user.get("name", ""),
+            handle="@" + user["username"] if user.get("username") else "",
+            admin=t(settings, "admin_tag") if user.get("admin") else "",
+            date=time.strftime("%Y-%m-%d", time.gmtime(user.get("joined", 0))),
         )
         lines.append(html.escape(text) if markup else text)
     return "\n".join(lines)
@@ -404,42 +498,39 @@ def reply_for(settings, tg, store, message):
         if joined is None and not user:
             return None
         if joined is not None:
-            user = joined
-            if joined.get("admin"):
-                return link_message(member_link(template_link(settings), user["uuid"], link_label(user)), True) + (
-                    "\n\nYou are an admin. Send /help for the admin commands."
-                )
-            return link_message(member_link(template_link(settings), user["uuid"], link_label(user)), True)
+            reply = link_message(settings, joined, t(settings, "welcome"))
+            return reply + (t(settings, "is_admin") if joined.get("admin") else "")
 
     if not user:
         return None  # strangers get no answer at all
 
     if command in ("/start", "/config", "/link"):
-        return link_message(member_link(template_link(settings), user["uuid"], link_label(user)))
+        return link_message(settings, user)
+    if command in ("/new_config", "/newconfig"):
+        return new_config(settings, store, uid)
+    help_text = t(settings, "help") + (t(settings, "admin_help") if user.get("admin") else "")
     if command == "/help" or not command.startswith("/"):
-        return HELP + (ADMIN_HELP if user.get("admin") else "")
+        return help_text
     if not user.get("admin"):
-        return "Unknown command.\n\n" + HELP
+        return t(settings, "unknown") + help_text
 
     if command == "/invite":
         admin = arg.lower() == "admin"
         code = new_invite(store, settings, admin=admin, by=uid)
-        kind = "admin invite" if admin else "invite"
-        return "One-time {}, valid for {} days:\n\n{}".format(
-            kind, settings["BOT_INVITE_DAYS"], invite_url(tg.me(), code)
-        )
+        return t(settings, "admin_invite" if admin else "invite",
+                 days=settings["BOT_INVITE_DAYS"], url=invite_url(tg.me(), code))
     if command == "/users":
-        return format_users(store, markup=True)
+        return format_users(store, settings, markup=True)
     if command == "/revoke":
         if not arg:
-            return "Usage: /revoke &lt;id&gt; (ids are in /users)"
+            return t(settings, "revoke_usage")
         if arg == uid:
-            return "You can't revoke yourself."
+            return t(settings, "revoke_self")
         if arg not in store["users"]:
-            return "No member with id {}. Ids are in /users.".format(html.escape(arg))
+            return t(settings, "no_member", uid=html.escape(arg))
         removed = revoke(settings, store, arg)
-        return "Removed {}. Their link stopped working.".format(html.escape(removed.get("name", arg)))
-    return "Unknown command.\n\n" + HELP + ADMIN_HELP
+        return t(settings, "removed", name=html.escape(removed.get("name", arg)))
+    return t(settings, "unknown") + help_text
 
 
 def handle_update(settings, tg, update):
@@ -451,7 +542,7 @@ def handle_update(settings, tg, update):
             reply = reply_for(settings, tg, store, message)
         except BotError as err:
             log("error: {}".format(err))
-            reply = "Something went wrong on the server. Try again later." if (
+            reply = t(settings, "error") if (
                 str((message.get("from") or {}).get("id")) in store["users"]
             ) else None
     if reply:
@@ -468,8 +559,9 @@ def cmd_run(args, settings):
     try:
         log("running as @{}".format(tg.me()))
         tg.call("setMyCommands", {"commands": [
-            {"command": "config", "description": "Get your link"},
-            {"command": "help", "description": "Help"},
+            {"command": "config", "description": t(settings, "cmd_config")},
+            {"command": "new_config", "description": t(settings, "cmd_new_config")},
+            {"command": "help", "description": t(settings, "cmd_help")},
         ]})
     except BotError as err:
         die(str(err))
@@ -586,6 +678,8 @@ def main(argv=None):
         float(settings["BOT_INVITE_DAYS"])
     except ValueError:
         die("BOT_INVITE_DAYS must be a number")
+    if settings["BOT_LANGUAGE"] not in TEXTS:
+        die("BOT_LANGUAGE must be one of: " + ", ".join(sorted(TEXTS)))
     try:
         return COMMANDS[args.command](args, settings)
     except KeyboardInterrupt:
