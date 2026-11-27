@@ -55,9 +55,23 @@ Nodes found this way are run by strangers, who can read the traffic you send thr
 python3 Discover.py scan --mirror https://example.com/sub.txt            # one or more sources
 python3 Discover.py scan --mirror URL1 --mirror URL2 --concurrency 3
 python3 Discover.py scan --no-speedtest --mirror URL                     # TCP check only, no xray needed
-python3 Discover.py list --count 10                                      # 10 fastest
+python3 Discover.py list --count 10                                      # 10 best
 python3 Discover.py list --output working.txt
 ```
+
+### Speed and reliability
+
+Each node keeps its test history. `test` re-runs the speed test on everything stored and records how many tests passed, the median speed of the successful ones and the time to the first byte:
+
+```bash
+python3 Discover.py test --rounds 3 --interval 60   # 3 rounds, a minute apart
+python3 Discover.py list --details                  # table: reliability, KB/s, time to first byte, tests
+python3 Discover.py list --sort speed               # or: reliability, or the default: score
+```
+
+The default `score` is reliability times speed, so a fast node that often fails ranks below a slightly slower steady one. Reliability is smoothed (`(passes+1)/(tests+2)`), so one lucky test does not beat five good ones. `test` drops nodes that pass fewer than a third of their tests once they have at least three (`--keep-failing` keeps them). Run `test` several times, spaced out, to build up a meaningful history.
+
+**Measuring from Iran:** results are only valid for where the tests run. A server abroad shows how nodes look from abroad, and a node that works there can still be blocked inside Iran. To rank nodes for Iran, run `scan` and `test` on a computer in Iran (with `xray` and `curl` installed), ideally at different times of day.
 
 Sources can also live in `~/.config/v2raygen/mirrors.txt` and `channels.txt` (one per line), so a bare `scan` uses them. Each `scan` also re-checks everything already stored and drops nodes that stopped answering. Results are kept in `~/.config/v2raygen/discovered.json`.
 
